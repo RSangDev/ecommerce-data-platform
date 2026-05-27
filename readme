@@ -1,0 +1,538 @@
+# 🚀 E-Commerce Data Platform - Complete Data Engineering Solution
+
+A **production-ready data engineering platform** built entirely with **AWS Free Tier** services. Complete ETL/ELT pipeline with data lake, Spark processing, and analytics dashboards.
+
+![AWS](https://img.shields.io/badge/AWS-Serverless-orange)
+![Spark](https://img.shields.io/badge/Apache-Spark-red)
+![Python](https://img.shields.io/badge/Python-3.11-blue)
+![Cost](https://img.shields.io/badge/Cost-$0--3%2Fmonth-success)
+![License](https://img.shields.io/badge/License-MIT-green)
+
+---
+
+## 📊 Project Overview
+
+Complete data engineering demonstration featuring:
+
+✅ **Medallion Architecture** (Bronze/Silver/Gold)  
+✅ **Real-time + Batch Processing** (Spark + Lambda)  
+✅ **Automated Data Quality** (Great Expectations)  
+✅ **Serverless Orchestration** (Step Functions)  
+✅ **Data Warehouse** (Star Schema Design)  
+✅ **BI Dashboards** (QuickSight)  
+✅ **100% Free Tier** (or $0-3/month)  
+
+---
+
+## 🏗️ Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    DATA SOURCES                         │
+│        (APIs, CSV, JSON Events - Simulated)            │
+└──────────────────────┬──────────────────────────────────┘
+                       ▼
+┌─────────────────────────────────────────────────────────┐
+│              INGESTION LAYER (Lambda)                   │
+│  - Data Generator (Fake, realistic data)              │
+│  - Write to S3 Bronze layer                           │
+└──────────────────────┬──────────────────────────────────┘
+                       ▼
+┌─────────────────────────────────────────────────────────┐
+│        BRONZE LAYER (Raw Data Lake - S3)               │
+│  - products/ | customers/ | orders/ | events/         │
+│  - Partitioned by date                                │
+│  - JSON format                                        │
+└──────────────────────┬──────────────────────────────────┘
+                       ▼
+┌─────────────────────────────────────────────────────────┐
+│      ORCHESTRATION (AWS Step Functions - FREE)         │
+│  - Daily 2 AM UTC trigger (EventBridge)              │
+│  - Coordinate: Data Gen → Spark Jobs → DQ → Crawl   │
+└──────────────────────┬──────────────────────────────────┘
+                       ▼
+┌─────────────────────────────────────────────────────────┐
+│     PROCESSING (EMR Serverless - 400 vCPU FREE)       │
+│  - Bronze → Silver (clean, dedupe, validate)         │
+│  - Silver → Gold (aggregate, calculate metrics)      │
+│  - PySpark jobs                                      │
+└──────────────────────┬──────────────────────────────────┘
+                       ▼
+┌──────────────┬────────────────────┬─────────────────┐
+│   SILVER     │      GOLD          │    GOLD         │
+│   LAYER      │    LAYER           │    LAYER        │
+│   (S3)       │   (S3)             │   (S3)          │
+├──────────────┼────────────────────┼─────────────────┤
+│ Dimensions:  │ Aggregations:      │ Analytics:      │
+│ - Products   │ - Daily Sales      │ - Cohorts       │
+│ - Customers  │ - Product Perf     │ - RFM Analysis  │
+│ - Date       │ - Customer 360     │ - Segments      │
+│ - Category   │ - Category Trends  │                 │
+└──────────────┴────────────────────┴─────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────────────────┐
+│          DATA QUALITY (Lambda + DynamoDB)              │
+│  - Validate each layer                                │
+│  - Store results in DynamoDB                          │
+│  - Alert on failures (SNS)                            │
+└──────────────────────┬──────────────────────────────────┘
+                       ▼
+┌─────────────────────────────────────────────────────────┐
+│      METADATA CATALOG (Glue Crawlers - FREE)          │
+│  - Auto-discover schemas                              │
+│  - Metadata management                                │
+│  - Schema evolution tracking                          │
+└──────────────────────┬──────────────────────────────────┘
+                       ▼
+┌─────────────────────────────────────────────────────────┐
+│       ANALYTICS LAYER (Athena - 1TB FREE)             │
+│  - SQL queries on Gold layer                         │
+│  - Pre-built views                                   │
+│  - Performance optimization                          │
+└──────────────────────┬──────────────────────────────────┘
+                       ▼
+┌─────────────────────────────────────────────────────────┐
+│    VISUALIZATION (QuickSight - 1 User FREE)           │
+│  - 📊 Sales Performance                              │
+│  - 📊 Product Analytics                              │
+│  - 📊 Customer Segmentation                          │
+│  - 📊 Real-time Monitoring                           │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 🛠️ AWS Services Used (All FREE Tier)
+
+| Service | Purpose | Free Tier | Cost/Month |
+|---------|---------|-----------|-----------|
+| **S3** | Data Lake (Bronze/Silver/Gold) | 5GB | $0 ✅ |
+| **Lambda** | Data ingestion, quality checks | 1M requests | $0 ✅ |
+| **EMR Serverless** | Spark ETL jobs | 400 vCPU-hours | $0 ✅ |
+| **Glue** | Crawlers & Data Catalog | 1M objects | $0 ✅ |
+| **Step Functions** | Orchestration | 4k transitions | $0 ✅ |
+| **DynamoDB** | Metadata, watermarks, DQ results | 25GB | $0 ✅ |
+| **Athena** | SQL queries on data | 1TB queries | $0 ✅ |
+| **EventBridge** | Scheduling | 5M events | $0 ✅ |
+| **CloudWatch** | Logs & monitoring | 5GB logs | $0 ✅ |
+| **SNS** | Alerting | 1k emails | $0 ✅ |
+| **QuickSight** | BI dashboards | 1 user | $0 ✅ |
+| **IAM** | Access control | Unlimited | $0 ✅ |
+
+**Total: $0-3/month** (after free tier ends)
+
+---
+
+## 📂 Project Structure
+
+```
+ecommerce-data-platform/
+├── cloudformation/
+│   └── template.yaml              # Infrastructure as Code
+├── lambda/
+│   ├── data-generator/
+│   │   └── index.py              # Generates fake e-commerce data
+│   ├── data-quality/
+│   │   └── index.py              # Data quality validations
+│   └── orchestration/
+│       └── index.py              # Step Functions trigger
+├── spark/
+│   └── jobs/
+│       ├── bronze_to_silver.py   # ETL: Clean & transform
+│       └── silver_to_gold.py     # Aggregations & metrics
+├── dbt/
+│   ├── models/
+│   │   ├── staging/
+│   │   ├── marts/
+│   │   └── macros/
+│   └── dbt_project.yml
+├── dashboards/
+│   └── quicksight/               # Dashboard definitions
+├── scripts/
+│   ├── deploy.sh                 # Bash deployment
+│   ├── deploy.ps1                # PowerShell deployment
+│   └── cleanup.sh                # Delete all resources
+├── docs/
+│   ├── ARCHITECTURE.md
+│   ├── DATA_DICTIONARY.md
+│   └── TROUBLESHOOTING.md
+├── requirements.txt              # Python dependencies
+└── README.md                      # This file
+```
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+- AWS Account with Free Tier eligibility
+- AWS CLI configured (`aws configure`)
+- Bash or PowerShell
+- Git (optional)
+
+### Installation
+
+**1. Clone or download the repository**
+```bash
+git clone https://github.com/rsangdev/ecommerce-data-platform.git
+cd ecommerce-data-platform
+```
+
+**2. Deploy infrastructure (choose one)**
+
+**Bash:**
+```bash
+chmod +x scripts/deploy.sh
+./scripts/deploy.sh
+```
+
+**PowerShell:**
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
+.\scripts\deploy.ps1
+```
+
+**3. Monitor deployment**
+- CloudFormation stack should complete in ~5 minutes
+- Check AWS Console for resource creation
+- Lambda functions will be created and uploaded
+
+**4. Update SNS subscription**
+```bash
+# Go to SNS console and confirm email subscription
+# Required for data quality alerts
+```
+
+**5. Run initial data generation**
+```bash
+aws lambda invoke \
+  --function-name ecommerce-data-platform-data-generator \
+  --payload '{"config":{"products":50,"customers":100,"orders":200,"events":500}}' \
+  --region us-east-1 \
+  response.json
+
+cat response.json
+```
+
+**6. Trigger ETL pipeline**
+```bash
+# Get State Machine ARN from CloudFormation outputs
+aws stepfunctions start-execution \
+  --state-machine-arn arn:aws:states:us-east-1:ACCOUNT:stateMachine:ecommerce-data-platform-daily-etl \
+  --region us-east-1
+```
+
+**7. Create QuickSight dashboards**
+- Go to QuickSight console
+- Create data source: Athena (database: ecommerce_data_platform_db)
+- Build dashboards using gold layer tables
+
+---
+
+## 📊 Data Generated
+
+### Products
+- 50 fake e-commerce products
+- Categories: Electronics, Clothing, Books, Home, Sports, Toys
+- Price range: $10-$500
+- Ratings: 3.0-5.0 stars
+
+### Customers
+- 100 fake customers
+- Realistic names, emails, addresses
+- Customer segments: New, Active, VIP
+
+### Orders
+- 200 orders over last 90 days
+- 1-5 items per order
+- Realistic order distribution
+
+### Events
+- 500 clickstream events
+- Types: page_view, product_view, add_to_cart, purchase
+- Real-time generation (last 24 hours)
+
+---
+
+## 🔄 Pipeline Execution
+
+### Automated Schedule
+- **Trigger:** Daily at 2 AM UTC (EventBridge)
+- **Duration:** 5-10 minutes
+- **Steps:**
+  1. Generate data (Lambda)
+  2. Bronze → Silver (Spark)
+  3. Silver → Gold (Spark)
+  4. Data quality checks (Lambda)
+  5. Metadata catalog (Glue Crawler)
+  6. Send success notification (SNS)
+
+### Manual Execution
+```bash
+# Generate data
+aws lambda invoke \
+  --function-name ecommerce-data-platform-data-generator \
+  /tmp/response.json
+
+# Run Spark jobs directly
+aws emr-serverless start-job-run \
+  --application-id <APP_ID> \
+  --execution-role-arn <ROLE_ARN> \
+  --job-driver '{...}'
+
+# Check logs
+aws logs tail /aws/lambda/ecommerce-data-platform-data-generator --follow
+```
+
+---
+
+## 📈 Key Metrics & Views
+
+### Daily Sales Summary
+```sql
+SELECT 
+  order_date,
+  total_revenue,
+  profit_margin,
+  total_orders,
+  unique_customers
+FROM gold.daily_sales_summary
+ORDER BY order_date DESC
+LIMIT 10;
+```
+
+### Product Performance
+```sql
+SELECT 
+  product_name,
+  category,
+  total_revenue,
+  revenue_rank_overall,
+  profit_margin
+FROM gold.product_performance
+WHERE revenue_rank_overall <= 10
+ORDER BY revenue_rank_overall;
+```
+
+### Customer 360 (RFM Analysis)
+```sql
+SELECT 
+  customer_id,
+  full_name,
+  customer_segment,
+  lifetime_revenue,
+  rfm_score,
+  recency_score,
+  frequency_score,
+  monetary_score
+FROM gold.customer_360
+WHERE customer_segment = 'Champions'
+ORDER BY lifetime_revenue DESC;
+```
+
+### Cohort Analysis
+```sql
+SELECT 
+  cohort_period,
+  months_since_first_purchase,
+  active_customers,
+  cohort_revenue
+FROM gold.cohort_analysis
+WHERE cohort_period >= '2024-01'
+ORDER BY cohort_period, months_since_first_purchase;
+```
+
+---
+
+## 📝 Data Dictionary
+
+### Bronze Layer (Raw Data)
+- **products**: Raw product data with ratings
+- **customers**: Raw customer information with addresses
+- **orders**: Raw order data with items
+- **events**: Clickstream events (real-time)
+
+### Silver Layer (Cleaned & Validated)
+- **dim_products**: Deduplicated products with SCD Type 2
+- **dim_customers**: Cleaned customers with segments
+- **dim_date**: Pre-calculated date dimension
+- **fact_orders**: Fact table with FK relationships
+
+### Gold Layer (Analytics)
+- **daily_sales_summary**: Daily KPIs
+- **product_performance**: Rankings and trends
+- **customer_360**: RFM analysis
+- **category_analysis**: Category trends
+- **cohort_analysis**: Customer cohorts
+
+---
+
+## 🐛 Troubleshooting
+
+### Lambda fails with "No module named 'boto3'"
+**Solution:** Lambda functions include AWS SDK by default. If using custom packages, ensure requirements are in the ZIP.
+
+### EMR job fails with "Access Denied"
+**Solution:** Check IAM role permissions. Ensure EMR role has S3 and Glue access.
+
+### Data not appearing in S3
+**Solution:** Check Lambda logs:
+```bash
+aws logs tail /aws/lambda/ecommerce-data-platform-data-generator --follow
+```
+
+### Glue Crawler fails
+**Solution:** Verify S3 data format is JSON and path structure is correct.
+
+### QuickSight can't connect to Athena
+**Solution:** 
+1. Verify Athena database exists
+2. Create Athena results bucket: `s3://ecommerce-data-platform-athena-results-ACCOUNT/`
+3. Configure QuickSight Athena data source with correct database
+
+---
+
+## 💡 Learning Outcomes
+
+This project demonstrates:
+
+### Data Engineering Skills
+✅ **ETL/ELT Pipelines** - Complete data transformation workflow  
+✅ **Data Lake Architecture** - Medallion pattern (Bronze/Silver/Gold)  
+✅ **Spark Data Processing** - PySpark for distributed computing  
+✅ **Data Quality** - Validation frameworks and monitoring  
+✅ **Orchestration** - Workflow scheduling and dependencies  
+✅ **Dimensional Modeling** - Star schema design  
+✅ **Data Catalog** - Metadata management  
+✅ **Cost Optimization** - Serverless, free tier strategies  
+
+### AWS Services
+✅ S3, Lambda, Glue, EMR Serverless, Step Functions, DynamoDB  
+✅ Athena, QuickSight, CloudWatch, SNS, EventBridge  
+✅ CloudFormation, IAM, VPC  
+
+### Best Practices
+✅ Infrastructure as Code (CloudFormation)  
+✅ Automated testing & data quality  
+✅ Logging & monitoring  
+✅ Error handling & alerts  
+✅ Scalability & performance  
+
+---
+
+## 📊 Cost Estimation
+
+### Scenario 1: Portfolio Demo (Current)
+- 10 small products
+- 100 customers
+- 200 orders
+- **Cost:** $0.10/month ✅
+
+### Scenario 2: Active Development
+- 100 products
+- 500 customers
+- 1000 orders/day
+- **Cost:** $1-2/month
+
+### Scenario 3: Production (12+ months)
+- 1000+ products
+- 10k+ customers
+- 5000+ orders/day
+- **Cost:** $5-10/month
+
+---
+
+## 🔐 Security Considerations
+
+- ✅ All data encrypted at rest (S3, DynamoDB)
+- ✅ IAM roles with least privilege
+- ✅ VPC for EMR Serverless
+- ✅ No hardcoded credentials
+- ✅ Cloudtrail logging (optional)
+
+**For production:**
+- Enable S3 versioning & MFA delete
+- Add S3 bucket encryption
+- Enable Glue data catalog encryption
+- Use AWS KMS for key management
+- Add VPC endpoints for private networking
+
+---
+
+## 🚀 Future Enhancements
+
+- [ ] dbt integration for transformations
+- [ ] Apache Airflow (MWAA) for complex orchestration
+- [ ] Real-time streaming (Kinesis + Flink)
+- [ ] ML pipelines (SageMaker)
+- [ ] Data governance (Lake Formation)
+- [ ] Change Data Capture (DMS CDC)
+- [ ] Multi-region replication
+
+---
+
+## 📚 References
+
+- [AWS Data Lake Architecture](https://aws.amazon.com/blogs/big-data/)
+- [Medallion Architecture](https://www.databricks.com/blog/2022/06/24/data-lakehouse-paradigm-shift-in-large-scale-analytics.html)
+- [Spark SQL Guide](https://spark.apache.org/docs/latest/sql-getting-started.html)
+- [AWS Best Practices](https://docs.aws.amazon.com/prescriptive-guidance/)
+- [dbt Documentation](https://docs.getdbt.com/)
+
+---
+
+## ❓ FAQ
+
+**Q: Can I use this for real production workloads?**
+A: Yes! The architecture is production-ready. For larger scale, upgrade to paid tiers.
+
+**Q: How much data can I process?**
+A: EMR Serverless free tier supports 400 vCPU-hours/month. Perfect for 10-100GB datasets.
+
+**Q: Can I modify the data models?**
+A: Absolutely! Change Spark jobs, dimension tables, and aggregations as needed.
+
+**Q: What if my dataset is larger?**
+A: Use S3 partitioning, enable Athena result caching, and scale EMR resources.
+
+**Q: How do I add more data sources?**
+A: Create new Lambda functions in the data-generator, adjust Step Functions workflow.
+
+---
+
+## 📄 License
+
+MIT License - feel free to use for learning and portfolios
+
+---
+
+## 👤 Author
+
+**Your Name**
+- GitHub: [@RSangDev](https://github.com/Rsangdev)
+
+---
+
+## 🙏 Acknowledgments
+
+- AWS for amazing free tier
+- Apache Spark community
+- Databricks for medallion architecture concept
+- dbt for modern data transformations
+
+---
+
+## 📞 Support
+
+For issues or questions:
+1. Check [Troubleshooting](#troubleshooting) section
+2. Review CloudWatch logs
+3. Open an issue on GitHub
+4. Check AWS documentation
+
+---
+
+**Last Updated:** May 2024  
+**Status:** ✅ Production Ready  
+**Maintenance:** Active
