@@ -1,4 +1,4 @@
-# E-Commerce Data Platform - Deploy Script (PowerShell)
+﻿# E-Commerce Data Platform - Deploy Script (PowerShell)
 # Complete deployment of data engineering platform to AWS
 #
 # Usage: .\scripts\deploy.ps1
@@ -188,7 +188,7 @@ function Deploy-Stack {
 
 function Get-StackOutputs {
     Write-Header "Stack Outputs"
-    aws cloudformation describe-stacks --stack-name $StackName --query 'Stacks[0].Outputs' --region $AWSRegion --output table
+    aws cloudformation describe-stacks --stack-name $StackName --query "Stacks[0].Outputs" --region $AWSRegion --output table
 }
 
 function Upload-SparkJobs {
@@ -247,33 +247,37 @@ function Update-LambdaFunctions {
         Write-Success "Updated data-quality"
     } catch {}
 }
+
 function Print-Instructions {
     Write-Header "Deployment Complete! "
     
     Write-Host "Next Steps:" -ForegroundColor Green
     Write-Host ""
     Write-Host "1. Update SNS Email Subscription" -ForegroundColor Cyan
-    Write-Host "   AWS Console ``> SNS ``> Topics ``> Confirm email"
+    Write-Host "   AWS Console -> SNS -> Topics -> Confirm email"
     Write-Host ""
     Write-Host "2. Generate Initial Data" -ForegroundColor Cyan
     
-    # Here-string limpa usando placeholders para não quebrar com o JSON
-    $InstructionsText = @'
-   aws lambda invoke --function-name PROJECT_NAME_PLACEHOLDER-data-generator --payload '{"config":{"products":50,"customers":100,"orders":200,"events":500}}' --region AWS_REGION_PLACEHOLDER response.json
-'@
+    # Pure ASCII comment to avoid encoding issues
+    $ConfigObj = @{ config = @{ products = 50; customers = 100; orders = 200; events = 500 } }
+    $JsonString = ConvertTo-Json $ConfigObj -Compress
     
-    $InstructionsText = $InstructionsText.Replace("PROJECT_NAME_PLACEHOLDER", $ProjectName).Replace("AWS_REGION_PLACEHOLDER", $AWSRegion)
-    Write-Host $InstructionsText
+    # ASCII 39 is the single quote character
+    $sq = [char]39
+    
+    $LambdaCmd = "   aws lambda invoke --function-name " + $ProjectName + "-data-generator --payload " + $sq + $JsonString + $sq + " --region " + $AWSRegion + " response.json"
+    Write-Host $LambdaCmd
     
     Write-Host ""
     Write-Host "3. Run ETL Pipeline" -ForegroundColor Cyan
-    
-    # Escapando os caracteres '>' com a crase do PowerShell para evitar o ParserError
-    Write-Host "   AWS Console ``> Step Functions ``> $ProjectName-daily-etl ``> Start Execution"
+    $PipelineMsg = "   AWS Console -> Step Functions -> " + $ProjectName + "-daily-etl -> Start Execution"
+    Write-Host $PipelineMsg
     
     Write-Host ""
     Write-Host "4. Check Data Lake" -ForegroundColor Cyan
-    Write-Host "   aws s3 ls s3://$ProjectName-datalake-$AWSAccountId/ --recursive"
+    $S3Msg = "   aws s3 ls s3://" + $ProjectName + "-datalake-" + $AWSAccountId + "/ --recursive"
+    Write-Host $S3Msg
+    
     Write-Host ""
     Write-Host "Documentation:" -ForegroundColor Green
     Write-Host "   README.md, GETTING_STARTED.md, docs\ARCHITECTURE.md"
@@ -302,7 +306,7 @@ function Main {
     Get-StackOutputs
     Print-Instructions
     
-    Write-Success "All done! Your data platform is ready! "
+    Write-Success "All done! Your data platform is ready!"
 }
 
 # Execute main
