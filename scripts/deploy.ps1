@@ -1,56 +1,50 @@
 ﻿# E-Commerce Data Platform - Deploy Script (PowerShell)
 # Complete deployment of data engineering platform to AWS
-#
-# Usage: .\scripts\deploy.ps1
-# Supports: Windows PowerShell 7+
 
 $ErrorActionPreference = "Stop"
 
-# ============================================================================
-# CONFIGURATION
-# ============================================================================
-
+# Configuration
 $ProjectName = "ecommerce-data-platform"
 $AWSRegion = "us-east-1"
 $StackName = "$ProjectName-stack"
 $CFTemplate = "cloudformation\template.yaml"
 
-# Get script directory
+# Get directories
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectDir = Split-Path -Parent $ScriptDir
 
 # ============================================================================
-# HELPER FUNCTIONS - DEFINED FIRST
+# FUNCTIONS - Define these FIRST before using them
 # ============================================================================
 
 function Write-Header {
     param([string]$Message)
     Write-Host ""
-    Write-Host "╔════════════════════════════════════════╗" -ForegroundColor Blue
-    Write-Host "║ $Message" -ForegroundColor Blue
-    Write-Host "╚════════════════════════════════════════╝" -ForegroundColor Blue
+    Write-Host "============================================" -ForegroundColor Blue
+    Write-Host $Message -ForegroundColor Blue
+    Write-Host "============================================" -ForegroundColor Blue
     Write-Host ""
 }
 
 function Write-Success {
     param([string]$Message)
-    Write-Host " $Message" -ForegroundColor Green
+    Write-Host "[OK] $Message" -ForegroundColor Green
 }
 
 function Write-Error-Custom {
     param([string]$Message)
-    Write-Host " $Message" -ForegroundColor Red
+    Write-Host "[ERROR] $Message" -ForegroundColor Red
     exit 1
 }
 
 function Write-Warning-Custom {
     param([string]$Message)
-    Write-Host "  $Message" -ForegroundColor Yellow
+    Write-Host "[WARNING] $Message" -ForegroundColor Yellow
 }
 
 function Write-Info {
     param([string]$Message)
-    Write-Host "  $Message" -ForegroundColor Cyan
+    Write-Host "[INFO] $Message" -ForegroundColor Cyan
 }
 
 # ============================================================================
@@ -63,15 +57,9 @@ function Check-Prerequisites {
     try {
         aws --version | Out-Null
         Write-Success "AWS CLI found"
-    } catch {
-        Write-Error-Custom "AWS CLI is not installed"
     }
-    
-    try {
-        python --version | Out-Null
-        Write-Success "Python found"
-    } catch {
-        Write-Warning-Custom "Python not found (optional)"
+    catch {
+        Write-Error-Custom "AWS CLI is not installed"
     }
 }
 
@@ -81,7 +69,8 @@ function Get-AccountId {
     try {
         $script:AWSAccountId = aws sts get-caller-identity --query Account --output text --region $AWSRegion
         Write-Success "Account ID: $AWSAccountId"
-    } catch {
+    }
+    catch {
         Write-Error-Custom "Failed to get AWS Account ID"
     }
 }
@@ -97,7 +86,8 @@ function Validate-Template {
     try {
         aws cloudformation validate-template --template-body "file://$TemplatePath" --region $AWSRegion | Out-Null
         Write-Success "Template is valid"
-    } catch {
+    }
+    catch {
         Write-Error-Custom "Template validation failed"
     }
 }
@@ -110,10 +100,14 @@ function Package-Lambda {
     $PackageDir = Join-Path $SourceDir "package"
     $ZipPath = Join-Path $SourceDir "$FunctionName.zip"
     
-    if (Test-Path $PackageDir) { Remove-Item -Recurse -Force $PackageDir }
-    if (Test-Path $ZipPath) { Remove-Item -Force $ZipPath }
-    New-Item -ItemType Directory -Path $PackageDir | Out-Null
+    if (Test-Path $PackageDir) {
+        Remove-Item -Recurse -Force $PackageDir
+    }
+    if (Test-Path $ZipPath) {
+        Remove-Item -Force $ZipPath
+    }
     
+    New-Item -ItemType Directory -Path $PackageDir | Out-Null
     Copy-Item -Path (Join-Path $SourceDir "index.py") -Destination $PackageDir
     
     $OriginalLocation = Get-Location
@@ -134,7 +128,8 @@ function Upload-LambdaZips {
     
     try {
         aws s3 ls "s3://$LambdaBucket" --region $AWSRegion 2>$null | Out-Null
-    } catch {
+    }
+    catch {
         Write-Info "Creating Lambda bucket..."
         aws s3 mb "s3://$LambdaBucket" --region $AWSRegion
     }
@@ -165,23 +160,28 @@ function Deploy-Stack {
     try {
         aws cloudformation describe-stacks --stack-name $StackName --region $AWSRegion 2>$null | Out-Null
         $StackExists = $true
-    } catch {}
+    }
+    catch {
+    }
     
     if ($StackExists) {
         Write-Warning-Custom "Stack already exists. Updating..."
         aws cloudformation update-stack --stack-name $StackName --template-body "file://$TemplatePath" --parameters ParameterKey=ProjectName,ParameterValue=$ProjectName --capabilities CAPABILITY_NAMED_IAM --region $AWSRegion
         $Waiter = "stack-update-complete"
-    } else {
+    }
+    else {
         Write-Info "Creating new stack..."
         aws cloudformation create-stack --stack-name $StackName --template-body "file://$TemplatePath" --parameters ParameterKey=ProjectName,ParameterValue=$ProjectName --capabilities CAPABILITY_NAMED_IAM --region $AWSRegion
         $Waiter = "stack-create-complete"
     }
     
     Write-Info "Waiting for stack deployment (5-10 minutes)..."
+    
     try {
         aws cloudformation wait $Waiter --stack-name $StackName --region $AWSRegion
         Write-Success "Stack deployment completed"
-    } catch {
+    }
+    catch {
         Write-Warning-Custom "Stack deployment timed out. Check AWS Console."
     }
 }
@@ -205,7 +205,8 @@ function Upload-SparkJobs {
             aws s3 ls "s3://$DataBucket" --region $AWSRegion 2>$null | Out-Null
             Write-Success "Data lake bucket is ready"
             break
-        } catch {
+        }
+        catch {
             $Retry++
             if ($Retry -eq $MaxRetries) {
                 Write-Warning-Custom "Data lake bucket not available yet"
@@ -238,54 +239,44 @@ function Update-LambdaFunctions {
         Write-Info "Updating data-generator..."
         aws lambda update-function-code --function-name "$ProjectName-data-generator" --s3-bucket $LambdaBucket --s3-key data-generator.zip --region $AWSRegion | Out-Null
         Write-Success "Updated data-generator"
-    } catch {}
+    }
+    catch {
+    }
     
     try {
         aws lambda get-function --function-name "$ProjectName-data-quality" --region $AWSRegion 2>$null | Out-Null
         Write-Info "Updating data-quality..."
         aws lambda update-function-code --function-name "$ProjectName-data-quality" --s3-bucket $LambdaBucket --s3-key data-quality.zip --region $AWSRegion | Out-Null
         Write-Success "Updated data-quality"
-    } catch {}
+    }
+    catch {
+    }
 }
 
 function Print-Instructions {
-    Write-Header "Deployment Complete! "
+    Write-Header "Deployment Complete!"
     
+    Write-Host ""
     Write-Host "Next Steps:" -ForegroundColor Green
     Write-Host ""
-    Write-Host "1. Update SNS Email Subscription" -ForegroundColor Cyan
-    Write-Host "   AWS Console -> SNS -> Topics -> Confirm email"
+    Write-Host "1. Update SNS Email Subscription"
+    Write-Host "   Go to AWS Console and confirm email subscription"
     Write-Host ""
-    Write-Host "2. Generate Initial Data" -ForegroundColor Cyan
-    
-    # Pure ASCII comment to avoid encoding issues
-    $ConfigObj = @{ config = @{ products = 50; customers = 100; orders = 200; events = 500 } }
-    $JsonString = ConvertTo-Json $ConfigObj -Compress
-    
-    # ASCII 39 is the single quote character
-    $sq = [char]39
-    
-    $LambdaCmd = "   aws lambda invoke --function-name " + $ProjectName + "-data-generator --payload " + $sq + $JsonString + $sq + " --region " + $AWSRegion + " response.json"
-    Write-Host $LambdaCmd
-    
+    Write-Host "2. Generate Initial Data"
+    Write-Host "   aws lambda invoke --function-name $ProjectName-data-generator --payload '{""config"":{""products"":50,""customers"":100,""orders"":200,""events"":500}}' --region $AWSRegion response.json"
     Write-Host ""
-    Write-Host "3. Run ETL Pipeline" -ForegroundColor Cyan
-    $PipelineMsg = "   AWS Console -> Step Functions -> " + $ProjectName + "-daily-etl -> Start Execution"
-    Write-Host $PipelineMsg
-    
+    Write-Host "3. Run ETL Pipeline"
+    Write-Host "   AWS Console - Step Functions - Start Execution"
     Write-Host ""
-    Write-Host "4. Check Data Lake" -ForegroundColor Cyan
-    $S3Msg = "   aws s3 ls s3://" + $ProjectName + "-datalake-" + $AWSAccountId + "/ --recursive"
-    Write-Host $S3Msg
-    
+    Write-Host "4. Check Data Lake"
+    Write-Host "   aws s3 ls s3://$ProjectName-datalake-$AWSAccountId/ --recursive"
     Write-Host ""
-    Write-Host "Documentation:" -ForegroundColor Green
-    Write-Host "   README.md, GETTING_STARTED.md, docs\ARCHITECTURE.md"
+    Write-Host "Documentation: README.md, GETTING_STARTED.md, docs/ARCHITECTURE.md"
     Write-Host ""
 }
 
 # ============================================================================
-# MAIN EXECUTION
+# MAIN
 # ============================================================================
 
 function Main {
@@ -309,5 +300,5 @@ function Main {
     Write-Success "All done! Your data platform is ready!"
 }
 
-# Execute main
+# Execute
 Main
