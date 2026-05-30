@@ -292,7 +292,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - states:StartExecution
-                Resource: !Ref DailyETLStateMachine
+                Resource: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${ProjectName}-daily-etl"
 
   # Glue service role
   GlueServiceRole:
@@ -383,8 +383,8 @@ Resources:
                 Action:
                   - lambda:InvokeFunction
                 Resource:
-                  - !GetAtt DataGeneratorFunction.Arn
-                  - !GetAtt DataQualityFunction.Arn
+                  - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectName}-data-generator"
+                  - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectName}-data-quality"
               - Effect: Allow
                 Action:
                   - emr-serverless:StartJobRun
@@ -552,7 +552,7 @@ Resources:
             Statement:
               - Effect: Allow
                 Action: states:StartExecution
-                Resource: !Ref DailyETLStateMachine
+                Resource: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${ProjectName}-daily-etl"
 
   # ========================================
   # SNS ALERTS (1000 emails FREE)
