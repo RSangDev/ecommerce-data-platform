@@ -145,8 +145,16 @@ function Upload-LambdaZips {
     $LambdaBucket = "$ProjectName-lambda-$AWSAccountId"
     Write-Info "Lambda bucket: $LambdaBucket"
 
-    $BucketExists = aws s3 ls "s3://$LambdaBucket" --region $AWSRegion 2>&1
-    if ($LASTEXITCODE -ne 0) {
+    $BucketExists = $false
+    try {
+        aws s3 ls "s3://$LambdaBucket" --region $AWSRegion | Out-Null
+        $BucketExists = $true
+    }
+    catch {
+        $BucketExists = $false
+    }
+
+    if (-not $BucketExists) {
         Write-Info "Creating bucket $LambdaBucket ..."
         aws s3 mb "s3://$LambdaBucket" --region $AWSRegion
     }
@@ -173,11 +181,19 @@ function Deploy-Stack {
 
     $TemplatePath = Join-Path $ProjectDir $CFTemplate
 
-    $StackCheck = aws cloudformation describe-stacks `
-        --stack-name $StackName `
-        --region $AWSRegion 2>&1
+    $StackExists = $false
+    try {
+        aws cloudformation describe-stacks `
+            --stack-name $StackName `
+            --region $AWSRegion `
+            --output table | Out-Null
+        $StackExists = $true
+    }
+    catch {
+        $StackExists = $false
+    }
 
-    if ($LASTEXITCODE -eq 0) {
+    if ($StackExists) {
         Write-Warn "Stack already exists - updating..."
         aws cloudformation update-stack `
             --stack-name $StackName `
@@ -222,17 +238,22 @@ function Upload-SparkJobs {
     Write-Info "Waiting for data lake bucket: $DataBucket"
 
     $Retries = 0
-    while ($Retries -lt 20) {
-        $Check = aws s3 ls "s3://$DataBucket" --region $AWSRegion 2>&1
-        if ($LASTEXITCODE -eq 0) {
+    $BucketReady = $false
+    while ($Retries -lt 20 -and -not $BucketReady) {
+        try {
+            aws s3 ls "s3://$DataBucket" --region $AWSRegion | Out-Null
+            $BucketReady = $true
             Write-Success "Bucket is ready"
-            break
         }
-        $Retries++
-        Start-Sleep -Seconds 5
+        catch {
+            $Retries++
+            if ($Retries -lt 20) {
+                Start-Sleep -Seconds 5
+            }
+        }
     }
 
-    if ($Retries -eq 20) {
+    if (-not $BucketReady) {
         Write-Warn "Data lake bucket not found - skipping Spark upload"
         return
     }
@@ -258,8 +279,17 @@ function Update-LambdaFunctions {
     $Functions = @("data-generator", "data-quality")
     foreach ($Fn in $Functions) {
         $FnName = "$ProjectName-$Fn"
-        $Check = aws lambda get-function --function-name $FnName --region $AWSRegion 2>&1
-        if ($LASTEXITCODE -eq 0) {
+        $FunctionExists = $false
+        
+        try {
+            aws lambda get-function --function-name $FnName --region $AWSRegion | Out-Null
+            $FunctionExists = $true
+        }
+        catch {
+            $FunctionExists = $false
+        }
+        
+        if ($FunctionExists) {
             Write-Info "Updating $FnName ..."
             aws lambda update-function-code `
                 --function-name $FnName `
