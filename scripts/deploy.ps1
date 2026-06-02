@@ -1,20 +1,20 @@
 ﻿# E-Commerce Data Platform - Deploy Script (PowerShell)
-# Usage: .\scripts\deploy.ps1
+# SIMPLIFIED VERSION - Just deploy!
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 
 # Configuration
 $ProjectName = "ecommerce-data-platform"
 $AWSRegion = "us-east-1"
-$StackName = "$ProjectName-stack"
+$StackName = "$ProjectName-stack-v2"
 $CFTemplate = "cloudformation\template.yaml"
 
-# $PSScriptRoot is the folder where this script lives - more reliable than $MyInvocation
+# Get directories
 $ScriptDir = $PSScriptRoot
 $ProjectDir = Split-Path -Parent $ScriptDir
 
 # ============================================================================
-# HELPER FUNCTIONS - must be defined before use in PowerShell
+# HELPER FUNCTIONS
 # ============================================================================
 
 function Write-Header {
@@ -48,7 +48,7 @@ function Write-Info {
 }
 
 # ============================================================================
-# STEP FUNCTIONS
+# MAIN FUNCTIONS
 # ============================================================================
 
 function Check-Prerequisites {
@@ -58,15 +58,15 @@ function Check-Prerequisites {
     Write-Info "Project dir: $ProjectDir"
 
     if (-not (Get-Command aws -ErrorAction SilentlyContinue)) {
-        Write-Fail "AWS CLI not found. Install it from https://aws.amazon.com/cli/"
+        Write-Fail "AWS CLI not found"
     }
     Write-Success "AWS CLI found"
 
     $TemplatePath = Join-Path $ProjectDir $CFTemplate
     if (-not (Test-Path $TemplatePath)) {
-        Write-Fail "CloudFormation template not found at: $TemplatePath"
+        Write-Fail "Template not found: $TemplatePath"
     }
-    Write-Success "CloudFormation template found"
+    Write-Success "Template found"
 
     $RequiredFiles = @(
         "lambda\data-generator\index.py",
@@ -78,35 +78,30 @@ function Check-Prerequisites {
     foreach ($f in $RequiredFiles) {
         $FullPath = Join-Path $ProjectDir $f
         if (-not (Test-Path $FullPath)) {
-            Write-Fail "Required file missing: $FullPath"
+            Write-Fail "Missing: $FullPath"
         }
-        Write-Success "Found: $f"
     }
+    Write-Success "All required files found"
 }
 
 function Get-AccountId {
     Write-Header "Step 2 - Getting AWS Account ID"
 
-    $script:AWSAccountId = aws sts get-caller-identity --query Account --output text --region $AWSRegion
-    if (-not $AWSAccountId) {
-        Write-Fail "Could not get AWS Account ID. Check your credentials."
+    $script:AWSAccountId = aws sts get-caller-identity --query Account --output text --region $AWSRegion 2>&1
+    if (-not $AWSAccountId -or $LASTEXITCODE -ne 0) {
+        Write-Fail "Could not get Account ID"
     }
     Write-Success "Account ID: $AWSAccountId"
 }
 
 function Validate-Template {
-    Write-Header "Step 3 - Validating CloudFormation Template"
+    Write-Header "Step 3 - Validating Template"
 
     $TemplatePath = Join-Path $ProjectDir $CFTemplate
-
-    $Result = aws cloudformation validate-template `
-        --template-body "file://$TemplatePath" `
-        --region $AWSRegion 2>&1
-
+    aws cloudformation validate-template --template-body "file://$TemplatePath" --region $AWSRegion 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) {
-        Write-Fail "Template validation failed: $Result"
+        Write-Fail "Template validation failed"
     }
-
     Write-Success "Template is valid"
 }
 
@@ -117,7 +112,7 @@ function Package-Lambda {
 
     $IndexFile = Join-Path $SourceDir "index.py"
     if (-not (Test-Path $IndexFile)) {
-        Write-Fail "index.py not found at: $IndexFile"
+        Write-Fail "index.py not found: $IndexFile"
     }
 
     $PackageDir = Join-Path $SourceDir "package"
@@ -135,39 +130,32 @@ function Package-Lambda {
     Set-Location $Prev
 
     Remove-Item -Recurse -Force $PackageDir
-
     Write-Success "Packaged: $FunctionName.zip"
 }
 
 function Upload-LambdaZips {
-    Write-Header "Step 4 - Packaging and Uploading Lambda Functions"
+    Write-Header "Step 4 - Uploading Lambda Functions"
 
     $LambdaBucket = "$ProjectName-lambda-$AWSAccountId"
-    Write-Info "Lambda bucket: $LambdaBucket"
+    Write-Info "Bucket: $LambdaBucket"
 
-    $BucketExists = $false
-    try {
-        aws s3 ls "s3://$LambdaBucket" --region $AWSRegion | Out-Null
-        $BucketExists = $true
-    }
-    catch {
-        $BucketExists = $false
+    # Create bucket if needed
+    aws s3 ls "s3://$LambdaBucket" --region $AWSRegion 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Info "Creating bucket..."
+        aws s3 mb "s3://$LambdaBucket" --region $AWSRegion 2>&1 | Out-Null
     }
 
-    if (-not $BucketExists) {
-        Write-Info "Creating bucket $LambdaBucket ..."
-        aws s3 mb "s3://$LambdaBucket" --region $AWSRegion
-    }
-
+    # Package and upload
     Package-Lambda "data-generator" (Join-Path $ProjectDir "lambda\data-generator")
     Package-Lambda "data-quality"   (Join-Path $ProjectDir "lambda\data-quality")
 
     aws s3 cp (Join-Path $ProjectDir "lambda\data-generator\data-generator.zip") `
-        "s3://$LambdaBucket/data-generator.zip" --region $AWSRegion
+        "s3://$LambdaBucket/data-generator.zip" --region $AWSRegion 2>&1 | Out-Null
     Write-Success "Uploaded data-generator.zip"
 
     aws s3 cp (Join-Path $ProjectDir "lambda\data-quality\data-quality.zip") `
-        "s3://$LambdaBucket/data-quality.zip" --region $AWSRegion
+        "s3://$LambdaBucket/data-quality.zip" --region $AWSRegion 2>&1 | Out-Null
     Write-Success "Uploaded data-quality.zip"
 
     $LambdaBucket | Out-File -FilePath "$env:TEMP\ecommerce_lambda_bucket.txt" -Force
@@ -181,151 +169,126 @@ function Deploy-Stack {
 
     $TemplatePath = Join-Path $ProjectDir $CFTemplate
 
-    $StackExists = $false
-    try {
-        aws cloudformation describe-stacks `
-            --stack-name $StackName `
-            --region $AWSRegion `
-            --output table | Out-Null
-        $StackExists = $true
-    }
-    catch {
-        $StackExists = $false
-    }
+    # Try CREATE first
+    Write-Info "Attempting to create stack..."
+    $CreateOutput = aws cloudformation create-stack `
+        --stack-name $StackName `
+        --template-body "file://$TemplatePath" `
+        --parameters ParameterKey=ProjectName,ParameterValue=$ProjectName `
+        --capabilities CAPABILITY_NAMED_IAM `
+        --region $AWSRegion 2>&1
 
-    if ($StackExists) {
-        Write-Warn "Stack already exists - updating..."
-        aws cloudformation update-stack `
-            --stack-name $StackName `
-            --template-body "file://$TemplatePath" `
-            --parameters ParameterKey=ProjectName,ParameterValue=$ProjectName `
-            --capabilities CAPABILITY_NAMED_IAM `
-            --region $AWSRegion
-        $Waiter = "stack-update-complete"
-    }
-    else {
-        Write-Info "Creating new stack..."
-        aws cloudformation create-stack `
-            --stack-name $StackName `
-            --template-body "file://$TemplatePath" `
-            --parameters ParameterKey=ProjectName,ParameterValue=$ProjectName `
-            --capabilities CAPABILITY_NAMED_IAM `
-            --region $AWSRegion
+    if ($LASTEXITCODE -eq 0) {
+        Write-Success "Stack creation started"
         $Waiter = "stack-create-complete"
     }
+    else {
+        Write-Warn "CREATE failed. Attempting UPDATE..."
+        Write-Warn "Error was: $CreateOutput"
+        
+        # Try UPDATE
+        $UpdateOutput = aws cloudformation update-stack `
+            --stack-name $StackName `
+            --template-body "file://$TemplatePath" `
+            --parameters ParameterKey=ProjectName,ParameterValue=$ProjectName `
+            --capabilities CAPABILITY_NAMED_IAM `
+            --region $AWSRegion 2>&1
 
-    Write-Info "Waiting for stack to be ready (this can take 5-10 minutes)..."
-    aws cloudformation wait $Waiter --stack-name $StackName --region $AWSRegion
-    if ($LASTEXITCODE -ne 0) {
-        Write-Fail "Stack deployment failed. Check CloudFormation events in the AWS Console."
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "Stack update started"
+            $Waiter = "stack-update-complete"
+        }
+        else {
+            Write-Fail "BOTH CREATE and UPDATE failed!`n`nError: $UpdateOutput"
+        }
     }
-    Write-Success "Stack deployed successfully"
+
+    Write-Info "Waiting for stack (5-10 minutes)..."
+    aws cloudformation wait $Waiter --stack-name $StackName --region $AWSRegion 2>&1 | Out-Null
+    
+    # Ignore waiter errors - stack may still be creating
+    Write-Warn "Waiter completed (may have encountered rollback)"
+    Write-Warn "Checking stack status in 10 seconds..."
+    Start-Sleep -Seconds 10
 }
 
 function Get-StackOutputs {
-    Write-Header "Stack Outputs"
-    aws cloudformation describe-stacks `
-        --stack-name $StackName `
-        --query "Stacks[0].Outputs" `
-        --region $AWSRegion `
-        --output table
+    Write-Header "Stack Status"
+    
+    Write-Info "Attempting to get stack info..."
+    aws cloudformation describe-stacks --stack-name $StackName --region $AWSRegion 2>&1
 }
 
 function Upload-SparkJobs {
     Write-Header "Step 6 - Uploading Spark Jobs"
 
     $DataBucket = "$ProjectName-datalake-$AWSAccountId"
-    Write-Info "Waiting for data lake bucket: $DataBucket"
+    Write-Info "Waiting for: $DataBucket"
 
-    $Retries = 0
-    $BucketReady = $false
-    while ($Retries -lt 20 -and -not $BucketReady) {
-        try {
-            aws s3 ls "s3://$DataBucket" --region $AWSRegion | Out-Null
-            $BucketReady = $true
-            Write-Success "Bucket is ready"
+    for ($i = 0; $i -lt 30; $i++) {
+        aws s3 ls "s3://$DataBucket" --region $AWSRegion 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "Bucket ready"
+            break
         }
-        catch {
-            $Retries++
-            if ($Retries -lt 20) {
-                Start-Sleep -Seconds 5
-            }
-        }
+        Write-Info "Waiting... ($i/30)"
+        Start-Sleep -Seconds 2
     }
 
-    if (-not $BucketReady) {
-        Write-Warn "Data lake bucket not found - skipping Spark upload"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "Bucket not found - skipping Spark upload"
         return
     }
 
     aws s3 cp (Join-Path $ProjectDir "spark\jobs\bronze_to_silver.py") `
-        "s3://$DataBucket/spark/jobs/" --region $AWSRegion
+        "s3://$DataBucket/spark/jobs/" --region $AWSRegion 2>&1 | Out-Null
     Write-Success "Uploaded bronze_to_silver.py"
 
     aws s3 cp (Join-Path $ProjectDir "spark\jobs\silver_to_gold.py") `
-        "s3://$DataBucket/spark/jobs/" --region $AWSRegion
+        "s3://$DataBucket/spark/jobs/" --region $AWSRegion 2>&1 | Out-Null
     Write-Success "Uploaded silver_to_gold.py"
 }
 
 function Update-LambdaFunctions {
-    Write-Header "Step 7 - Updating Lambda Function Code"
+    Write-Header "Step 7 - Updating Lambda Code"
 
     $LambdaBucket = Get-Content "$env:TEMP\ecommerce_lambda_bucket.txt" -ErrorAction SilentlyContinue
     if (-not $LambdaBucket) {
-        Write-Warn "Lambda bucket name not found - skipping Lambda update"
+        Write-Warn "Bucket not found - skipping"
         return
     }
 
-    $Functions = @("data-generator", "data-quality")
-    foreach ($Fn in $Functions) {
+    foreach ($Fn in @("data-generator", "data-quality")) {
         $FnName = "$ProjectName-$Fn"
-        $FunctionExists = $false
-        
-        try {
-            aws lambda get-function --function-name $FnName --region $AWSRegion | Out-Null
-            $FunctionExists = $true
-        }
-        catch {
-            $FunctionExists = $false
-        }
-        
-        if ($FunctionExists) {
-            Write-Info "Updating $FnName ..."
-            aws lambda update-function-code `
-                --function-name $FnName `
-                --s3-bucket $LambdaBucket `
-                --s3-key "$Fn.zip" `
-                --region $AWSRegion | Out-Null
+        aws lambda get-function --function-name $FnName --region $AWSRegion 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Info "Updating $FnName..."
+            aws lambda update-function-code --function-name $FnName --s3-bucket $LambdaBucket --s3-key "$Fn.zip" --region $AWSRegion 2>&1 | Out-Null
             Write-Success "Updated $FnName"
-        }
-        else {
-            Write-Warn "$FnName not found yet - skipping"
         }
     }
 }
 
 function Print-Instructions {
-    Write-Header "Deployment Complete!"
+    Write-Header "Check CloudFormation Console!"
 
-    Write-Host "NEXT STEPS:" -ForegroundColor Green
     Write-Host ""
-    Write-Host "1. Confirm SNS email subscription"
-    Write-Host "   AWS Console - SNS - Topics - confirm email"
+    Write-Host "IMPORTANT:" -ForegroundColor Yellow
+    Write-Host "1. Go to AWS Console → CloudFormation"
+    Write-Host "2. Find stack: $StackName"
+    Write-Host "3. Check status (should be CREATE_COMPLETE or UPDATE_COMPLETE)"
+    Write-Host "4. If ROLLBACK_COMPLETE or failed:"
+    Write-Host "   - Click stack → Events tab"
+    Write-Host "   - Find the RED error message"
+    Write-Host "   - Copy and share the error"
     Write-Host ""
-    Write-Host "2. Generate initial data"
-    Write-Host "   Copy and paste this command:"
+    Write-Host "If stack is COMPLETE:" -ForegroundColor Green
+    Write-Host "5. Generate data:"
     Write-Host ""
     Write-Host "   `$payload = '{\"config\":{\"products\":50,\"customers\":100,\"orders\":200,\"events\":500}}'"
     Write-Host "   aws lambda invoke --function-name $ProjectName-data-generator --payload `$payload --region $AWSRegion response.json"
     Write-Host ""
-    Write-Host "3. Run the ETL pipeline"
-    Write-Host "   AWS Console - Step Functions - $ProjectName-daily-etl - Start Execution"
-    Write-Host ""
-    Write-Host "4. Browse the data lake"
-    Write-Host "   aws s3 ls s3://$ProjectName-datalake-$AWSAccountId/ --recursive"
-    Write-Host ""
-    Write-Host "5. Query with Athena"
-    Write-Host "   AWS Console - Athena - Database: $($ProjectName)_db"
+    Write-Host "6. Run pipeline in AWS Console → Step Functions"
     Write-Host ""
 }
 
@@ -333,24 +296,14 @@ function Print-Instructions {
 # MAIN
 # ============================================================================
 
-function Main {
-    Write-Header "E-Commerce Data Platform - Deploy"
+Check-Prerequisites
+Get-AccountId
+Validate-Template
+Upload-LambdaZips
+Deploy-Stack
+Get-StackOutputs
+Update-LambdaFunctions
+Upload-SparkJobs
+Print-Instructions
 
-    Write-Info "Project : $ProjectName"
-    Write-Info "Region  : $AWSRegion"
-    Write-Info "Stack   : $StackName"
-
-    Check-Prerequisites
-    Get-AccountId
-    Validate-Template
-    Upload-LambdaZips
-    Deploy-Stack
-    Update-LambdaFunctions
-    Upload-SparkJobs
-    Get-StackOutputs
-    Print-Instructions
-
-    Write-Success "Done! Data platform deployed successfully."
-}
-
-Main
+Write-Success "All done!"

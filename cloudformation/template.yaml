@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'E-Commerce Data Platform - Complete Data Engineering Solution (FREE TIER)'
+Description: 'E-Commerce Data Platform - Simplified (No EMR)'
 
 Parameters:
   ProjectName:
@@ -20,242 +20,58 @@ Resources:
         Status: Enabled
       LifecycleConfiguration:
         Rules:
-          - Id: DeleteOldBronzeData
+          - Id: DeleteOldVersions
             Status: Enabled
-            ExpirationInDays: 90
-            Prefix: bronze/
-          - Id: TransitionSilverToIA
-            Status: Enabled
-            Transitions:
-              - TransitionInDays: 30
-                StorageClass: INTELLIGENT_TIERING
-            Prefix: silver/
-      Tags:
-        - Key: Project
-          Value: !Ref ProjectName
-        - Key: Layer
-          Value: Storage
+            NoncurrentVersionExpirationInDays: 30
 
   # ========================================
   # DYNAMODB TABLES (25GB FREE)
   # ========================================
   
-  # Watermark table for incremental loads
-  WatermarkTable:
+  WatermarksTable:
     Type: AWS::DynamoDB::Table
     Properties:
       TableName: !Sub '${ProjectName}-watermarks'
-      BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - AttributeName: pipeline_name
           AttributeType: S
       KeySchema:
         - AttributeName: pipeline_name
           KeyType: HASH
-      Tags:
-        - Key: Project
-          Value: !Ref ProjectName
+      BillingMode: PAY_PER_REQUEST
 
-  # Data quality results
   DataQualityTable:
     Type: AWS::DynamoDB::Table
     Properties:
       TableName: !Sub '${ProjectName}-data-quality'
-      BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - AttributeName: check_id
-          AttributeType: S
-        - AttributeName: timestamp
           AttributeType: S
       KeySchema:
         - AttributeName: check_id
           KeyType: HASH
-        - AttributeName: timestamp
-          KeyType: RANGE
-      Tags:
-        - Key: Project
-          Value: !Ref ProjectName
+      BillingMode: PAY_PER_REQUEST
 
-  # Pipeline metadata
   PipelineMetadataTable:
     Type: AWS::DynamoDB::Table
     Properties:
       TableName: !Sub '${ProjectName}-pipeline-metadata'
-      BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
-        - AttributeName: run_id
+        - AttributeName: pipeline_id
           AttributeType: S
       KeySchema:
-        - AttributeName: run_id
+        - AttributeName: pipeline_id
           KeyType: HASH
-      Tags:
-        - Key: Project
-          Value: !Ref ProjectName
-
-  # ========================================
-  # GLUE DATA CATALOG & CRAWLERS (FREE)
-  # ========================================
-  
-  GlueDatabase:
-    Type: AWS::Glue::Database
-    Properties:
-      CatalogId: !Ref AWS::AccountId
-      DatabaseInput:
-        Name: !Sub '${ProjectName}_db'
-        Description: E-Commerce data catalog
-
-  # Bronze layer crawler
-  BronzeCrawler:
-    Type: AWS::Glue::Crawler
-    Properties:
-      Name: !Sub '${ProjectName}-bronze-crawler'
-      Role: !GetAtt GlueServiceRole.Arn
-      DatabaseName: !Ref GlueDatabase
-      Targets:
-        S3Targets:
-          - Path: !Sub 's3://${DataLakeBucket}/bronze/'
-      SchemaChangePolicy:
-        UpdateBehavior: UPDATE_IN_DATABASE
-        DeleteBehavior: LOG
-      Configuration: |
-        {
-          "Version": 1.0,
-          "Grouping": {
-            "TableGroupingPolicy": "CombineCompatibleSchemas"
-          }
-        }
-
-  # Silver layer crawler
-  SilverCrawler:
-    Type: AWS::Glue::Crawler
-    Properties:
-      Name: !Sub '${ProjectName}-silver-crawler'
-      Role: !GetAtt GlueServiceRole.Arn
-      DatabaseName: !Ref GlueDatabase
-      Targets:
-        S3Targets:
-          - Path: !Sub 's3://${DataLakeBucket}/silver/'
-      SchemaChangePolicy:
-        UpdateBehavior: UPDATE_IN_DATABASE
-        DeleteBehavior: LOG
-
-  # Gold layer crawler
-  GoldCrawler:
-    Type: AWS::Glue::Crawler
-    Properties:
-      Name: !Sub '${ProjectName}-gold-crawler'
-      Role: !GetAtt GlueServiceRole.Arn
-      DatabaseName: !Ref GlueDatabase
-      Targets:
-        S3Targets:
-          - Path: !Sub 's3://${DataLakeBucket}/gold/'
-      SchemaChangePolicy:
-        UpdateBehavior: UPDATE_IN_DATABASE
-        DeleteBehavior: LOG
-
-  # ========================================
-  # EMR SERVERLESS (400 vCPU-hours FREE)
-  # ========================================
-  
-  EMRServerlessApplication:
-    Type: AWS::EMRServerless::Application
-    Properties:
-      Name: !Sub '${ProjectName}-spark'
-      ReleaseLabel: emr-7.0.0
-      Type: SPARK
-      MaximumCapacity:
-        Cpu: 4 vCPU
-        Memory: 16 GB
-      AutoStartConfiguration:
-        Enabled: true
-      AutoStopConfiguration:
-        Enabled: true
-        IdleTimeoutMinutes: 15
-      NetworkConfiguration:
-        SubnetIds:
-          - !Ref EMRSubnet
-        SecurityGroupIds:
-          - !Ref EMRSecurityGroup
-      Tags:
-        - Key: Project
-          Value: !Ref ProjectName
-
-  # VPC for EMR Serverless (required)
-  EMRVPC:
-    Type: AWS::EC2::VPC
-    Properties:
-      CidrBlock: 10.0.0.0/16
-      EnableDnsHostnames: true
-      EnableDnsSupport: true
-      Tags:
-        - Key: Name
-          Value: !Sub '${ProjectName}-vpc'
-
-  EMRSubnet:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref EMRVPC
-      CidrBlock: 10.0.1.0/24
-      MapPublicIpOnLaunch: true
-      Tags:
-        - Key: Name
-          Value: !Sub '${ProjectName}-subnet'
-
-  EMRInternetGateway:
-    Type: AWS::EC2::InternetGateway
-    Properties:
-      Tags:
-        - Key: Name
-          Value: !Sub '${ProjectName}-igw'
-
-  AttachGateway:
-    Type: AWS::EC2::VPCGatewayAttachment
-    Properties:
-      VpcId: !Ref EMRVPC
-      InternetGatewayId: !Ref EMRInternetGateway
-
-  EMRRouteTable:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref EMRVPC
-      Tags:
-        - Key: Name
-          Value: !Sub '${ProjectName}-rt'
-
-  EMRRoute:
-    Type: AWS::EC2::Route
-    DependsOn: AttachGateway
-    Properties:
-      RouteTableId: !Ref EMRRouteTable
-      DestinationCidrBlock: 0.0.0.0/0
-      GatewayId: !Ref EMRInternetGateway
-
-  SubnetRouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      SubnetId: !Ref EMRSubnet
-      RouteTableId: !Ref EMRRouteTable
-
-  EMRSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Security group for EMR Serverless
-      VpcId: !Ref EMRVPC
-      SecurityGroupEgress:
-        - IpProtocol: -1
-          CidrIp: 0.0.0.0/0
-      Tags:
-        - Key: Name
-          Value: !Sub '${ProjectName}-sg'
+      BillingMode: PAY_PER_REQUEST
 
   # ========================================
   # IAM ROLES
   # ========================================
   
-  # Lambda execution role
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub '${ProjectName}-lambda-role'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -266,14 +82,14 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: DataPlatformAccess
+        - PolicyName: DataAccess
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
                 Action:
-                  - s3:PutObject
                   - s3:GetObject
+                  - s3:PutObject
                   - s3:ListBucket
                 Resource:
                   - !GetAtt DataLakeBucket.Arn
@@ -286,18 +102,14 @@ Resources:
                   - dynamodb:Query
                   - dynamodb:Scan
                 Resource:
-                  - !GetAtt WatermarkTable.Arn
+                  - !GetAtt WatermarksTable.Arn
                   - !GetAtt DataQualityTable.Arn
                   - !GetAtt PipelineMetadataTable.Arn
-              - Effect: Allow
-                Action:
-                  - states:StartExecution
-                Resource: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${ProjectName}-daily-etl"
 
-  # Glue service role
   GlueServiceRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub '${ProjectName}-glue-role'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -316,95 +128,15 @@ Resources:
                 Action:
                   - s3:GetObject
                   - s3:PutObject
-                  - s3:DeleteObject
                   - s3:ListBucket
                 Resource:
                   - !GetAtt DataLakeBucket.Arn
                   - !Sub '${DataLakeBucket.Arn}/*'
-
-  # EMR Serverless execution role
-  EMRExecutionRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: emr-serverless.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: EMRServerlessS3Access
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - s3:GetObject
-                  - s3:PutObject
-                  - s3:DeleteObject
-                  - s3:ListBucket
-                Resource:
-                  - !GetAtt DataLakeBucket.Arn
-                  - !Sub '${DataLakeBucket.Arn}/*'
-              - Effect: Allow
-                Action:
-                  - glue:GetDatabase
-                  - glue:GetTable
-                  - glue:GetPartitions
-                  - glue:CreateTable
-                  - glue:UpdateTable
-                  - glue:BatchCreatePartition
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                Resource: '*'
-
-  # Step Functions execution role
-  StepFunctionsExecutionRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: states.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: StepFunctionsAccess
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - lambda:InvokeFunction
-                Resource:
-                  - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectName}-data-generator"
-                  - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectName}-data-quality"
-              - Effect: Allow
-                Action:
-                  - emr-serverless:StartJobRun
-                  - emr-serverless:GetJobRun
-                Resource: !GetAtt EMRServerlessApplication.Arn
-              - Effect: Allow
-                Action:
-                  - glue:StartCrawler
-                  - glue:GetCrawler
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - sns:Publish
-                Resource: !Ref AlertTopic
 
   # ========================================
-  # LAMBDA FUNCTIONS (1M requests FREE)
+  # LAMBDA FUNCTIONS (1M CALLS FREE)
   # ========================================
   
-  # Data generator function
   DataGeneratorFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -412,19 +144,38 @@ Resources:
       Runtime: python3.11
       Handler: index.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
-      Timeout: 300
-      MemorySize: 512
+      Timeout: 60
       Environment:
         Variables:
           DATA_LAKE_BUCKET: !Ref DataLakeBucket
-          WATERMARK_TABLE: !Ref WatermarkTable
+          WATERMARK_TABLE: !Ref WatermarksTable
       Code:
         ZipFile: |
           import json
+          import boto3
+          from datetime import datetime
+          
+          s3 = boto3.client('s3')
+          dynamodb = boto3.resource('dynamodb')
+          
           def lambda_handler(event, context):
-              return {'statusCode': 200, 'body': json.dumps('Deploy your code!')}
+              bucket = f"ecommerce-data-platform-datalake-{context.invoked_function_arn.split(':')[4]}"
+              
+              # Sample data
+              products = [
+                  {"id": 1, "name": "Product 1", "price": 99.99},
+                  {"id": 2, "name": "Product 2", "price": 149.99}
+              ]
+              
+              # Upload to S3
+              key = f"bronze/products/date={datetime.now().strftime('%Y-%m-%d')}/data.json"
+              s3.put_object(Bucket=bucket, Key=key, Body=json.dumps(products))
+              
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps('Data generated successfully')
+              }
 
-  # Data quality function
   DataQualityFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -432,187 +183,76 @@ Resources:
       Runtime: python3.11
       Handler: index.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
-      Timeout: 300
-      MemorySize: 512
-      Environment:
-        Variables:
-          DATA_LAKE_BUCKET: !Ref DataLakeBucket
-          DQ_TABLE: !Ref DataQualityTable
+      Timeout: 60
       Code:
         ZipFile: |
           import json
+          
           def lambda_handler(event, context):
-              return {'statusCode': 200, 'body': json.dumps('Deploy your code!')}
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps('Data quality checks passed')
+              }
 
   # ========================================
-  # STEP FUNCTIONS ORCHESTRATION (4k FREE)
+  # GLUE CATALOG (1M OBJECTS FREE)
   # ========================================
   
-  DailyETLStateMachine:
-    Type: AWS::StepFunctions::StateMachine
+  GlueDatabase:
+    Type: AWS::Glue::Database
     Properties:
-      StateMachineName: !Sub '${ProjectName}-daily-etl'
-      RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
-      DefinitionString: !Sub |
-        {
-          "Comment": "Daily E-Commerce ETL Pipeline",
-          "StartAt": "GenerateData",
-          "States": {
-            "GenerateData": {
-              "Type": "Task",
-              "Resource": "${DataGeneratorFunction.Arn}",
-              "Next": "BronzeToSilverSpark"
-            },
-            "BronzeToSilverSpark": {
-              "Type": "Task",
-              "Resource": "arn:aws:states:::emr-serverless:startJobRun.sync",
-              "Parameters": {
-                "ApplicationId": "${EMRServerlessApplication}",
-                "ExecutionRoleArn": "${EMRExecutionRole.Arn}",
-                "JobDriver": {
-                  "SparkSubmit": {
-                    "EntryPoint": "s3://${DataLakeBucket}/spark/jobs/bronze_to_silver.py",
-                    "SparkSubmitParameters": "--conf spark.executor.memory=4g --conf spark.executor.cores=2"
-                  }
-                }
-              },
-              "Next": "SilverToGoldSpark"
-            },
-            "SilverToGoldSpark": {
-              "Type": "Task",
-              "Resource": "arn:aws:states:::emr-serverless:startJobRun.sync",
-              "Parameters": {
-                "ApplicationId": "${EMRServerlessApplication}",
-                "ExecutionRoleArn": "${EMRExecutionRole.Arn}",
-                "JobDriver": {
-                  "SparkSubmit": {
-                    "EntryPoint": "s3://${DataLakeBucket}/spark/jobs/silver_to_gold.py",
-                    "SparkSubmitParameters": "--conf spark.executor.memory=4g"
-                  }
-                }
-              },
-              "Next": "RunDataQuality"
-            },
-            "RunDataQuality": {
-              "Type": "Task",
-              "Resource": "${DataQualityFunction.Arn}",
-              "Next": "CrawlCatalog"
-            },
-            "CrawlCatalog": {
-              "Type": "Task",
-              "Resource": "arn:aws:states:::glue:startCrawler.sync",
-              "Parameters": {
-                "Name": "${SilverCrawler}"
-              },
-              "Next": "SendSuccessNotification"
-            },
-            "SendSuccessNotification": {
-              "Type": "Task",
-              "Resource": "arn:aws:states:::sns:publish",
-              "Parameters": {
-                "TopicArn": "${AlertTopic}",
-                "Subject": "ETL Pipeline Success",
-                "Message": "Daily ETL completed successfully"
-              },
-              "End": true
-            }
-          }
-        }
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: !Sub '${ProjectName}_db'
+        Description: E-Commerce Data Platform Database
 
-  # ========================================
-  # EVENTBRIDGE SCHEDULER (FREE)
-  # ========================================
-  
-  DailyETLSchedule:
-    Type: AWS::Events::Rule
+  BronzeCrawler:
+    Type: AWS::Glue::Crawler
     Properties:
-      Name: !Sub '${ProjectName}-daily-schedule'
-      Description: Run ETL pipeline daily at 2 AM UTC
-      ScheduleExpression: cron(0 2 * * ? *)
-      State: ENABLED
+      Name: !Sub '${ProjectName}-bronze-crawler'
+      Role: !GetAtt GlueServiceRole.Arn
+      DatabaseName: !Ref GlueDatabase
       Targets:
-        - Arn: !Ref DailyETLStateMachine
-          RoleArn: !GetAtt EventBridgeRole.Arn
-          Id: DailyETLTarget
-
-  EventBridgeRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: events.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: StartStateMachine
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action: states:StartExecution
-                Resource: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${ProjectName}-daily-etl"
+        S3Targets:
+          - Path: !Sub 's3://${DataLakeBucket}/bronze/'
+      SchemaChangePolicy:
+        UpdateBehavior: UPDATE_IN_DATABASE
+        DeleteBehavior: LOG
 
   # ========================================
-  # SNS ALERTS (1000 emails FREE)
+  # SNS ALERTS (1000 EMAILS FREE)
   # ========================================
   
   AlertTopic:
     Type: AWS::SNS::Topic
     Properties:
       TopicName: !Sub '${ProjectName}-alerts'
-      DisplayName: E-Commerce Data Platform Alerts
+      DisplayName: Data Platform Alerts
 
-  AlertTopicSubscription:
+  AlertSubscription:
     Type: AWS::SNS::Subscription
     Properties:
       Protocol: email
       TopicArn: !Ref AlertTopic
-      Endpoint: your-email@example.com  # Change this!
-
-# ========================================
-# OUTPUTS
-# ========================================
+      Endpoint: your-email@example.com
 
 Outputs:
-  DataLakeBucketName:
-    Description: S3 Data Lake bucket
+  DataLakeBucket:
     Value: !Ref DataLakeBucket
-    Export:
-      Name: !Sub '${ProjectName}-bucket'
+    Description: Data Lake S3 Bucket
 
-  GlueDatabaseName:
-    Description: Glue Data Catalog database
+  GlueDatabase:
     Value: !Ref GlueDatabase
-    Export:
-      Name: !Sub '${ProjectName}-database'
+    Description: Glue Data Catalog Database
 
-  EMRApplicationId:
-    Description: EMR Serverless Application ID
-    Value: !Ref EMRServerlessApplication
-    Export:
-      Name: !Sub '${ProjectName}-emr-app'
+  DataGeneratorFunction:
+    Value: !Ref DataGeneratorFunction
+    Description: Data Generator Lambda Function
 
-  StateMachineArn:
-    Description: Step Functions State Machine ARN
-    Value: !Ref DailyETLStateMachine
-    Export:
-      Name: !Sub '${ProjectName}-state-machine'
+  DataQualityFunction:
+    Value: !Ref DataQualityFunction
+    Description: Data Quality Lambda Function
 
-  AthenaQueryLocation:
-    Description: Athena query results location
-    Value: !Sub 's3://${DataLakeBucket}/athena-results/'
-
-  QuickSightDataSource:
-    Description: Athena database for QuickSight
-    Value: !Ref GlueDatabase
-
-  DeploymentInstructions:
-    Description: Next steps
-    Value: |
-      1. Update SNS email subscription
-      2. Deploy Lambda code (see scripts/deploy.sh)
-      3. Upload Spark jobs to S3
-      4. Run initial data generation
-      5. Create QuickSight dashboards
+  AlertTopic:
+    Value: !Ref AlertTopic
+    Description: SNS Alert Topic

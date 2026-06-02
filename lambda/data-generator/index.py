@@ -1,3 +1,4 @@
+
 """
 Data Generator Lambda
 Generates realistic e-commerce data using Faker and external APIs
