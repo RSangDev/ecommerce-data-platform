@@ -1,5 +1,7 @@
+
 """
-E-Commerce Data Platform - Streamlit Dashboard (Simplified & Robust)
+E-Commerce Data Platform - Streamlit Dashboard
+Real-time visualization of data lake metrics
 """
 
 import streamlit as st
@@ -8,28 +10,20 @@ import boto3
 import json
 from datetime import datetime
 import plotly.express as px
+import plotly.graph_objects as go
+from io import BytesIO
 
 # Page config
-st.set_page_config(page_title="E-Commerce Dashboard", layout="wide")
+st.set_page_config(page_title="E-Commerce Dashboard", layout="wide", initial_sidebar_state="expanded")
+
+# Title
 st.title("📊 E-Commerce Data Platform Dashboard")
 st.markdown("Real-time data lake visualization")
 
-# Initialize S3 client with Streamlit Secrets
+# Initialize S3 client
 @st.cache_resource
 def get_s3_client():
-    try:
-        if "aws" in st.secrets:
-            return boto3.client(
-                's3',
-                region_name=st.secrets["aws"].get("region", "us-east-1"),
-                aws_access_key_id=st.secrets["aws"]["access_key_id"],
-                aws_secret_access_key=st.secrets["aws"]["secret_access_key"]
-            )
-        else:
-            return boto3.client('s3', region_name='us-east-1')
-    except Exception as e:
-        st.error(f"AWS Config Error: {e}")
-        st.stop()
+    return boto3.client('s3', region_name='us-east-1')
 
 @st.cache_data(ttl=300)
 def load_data_from_s3(bucket, prefix):
@@ -42,32 +36,34 @@ def load_data_from_s3(bucket, prefix):
         if 'Contents' in response:
             for obj in response['Contents']:
                 if obj['Key'].endswith('.json'):
-                    try:
-                        file_obj = s3.get_object(Bucket=bucket, Key=obj['Key'])
-                        content = json.loads(file_obj['Body'].read().decode('utf-8'))
-                        
-                        if isinstance(content, list):
-                            data.extend(content)
-                        elif isinstance(content, dict):
-                            data.append(content)
-                    except:
-                        continue
+                    file_obj = s3.get_object(Bucket=bucket, Key=obj['Key'])
+                    content = json.loads(file_obj['Body'].read())
+                    
+                    # Handle both list and dict responses
+                    if isinstance(content, list):
+                        data.extend(content)
+                    else:
+                        data.append(content)
         
         return pd.DataFrame(data) if data else pd.DataFrame()
     except Exception as e:
-        st.error(f"S3 Error: {e}")
+        st.error(f"Error loading data: {e}")
         return pd.DataFrame()
 
-# Sidebar
+# Sidebar config
 st.sidebar.header("⚙️ Configuration")
-bucket = "ecommerce-data-platform-datalake-211854352436"
+bucket = st.sidebar.text_input("S3 Bucket", "ecommerce-data-platform-datalake-211854352436")
+account_id = "211854352436"
+bucket = f"ecommerce-data-platform-datalake-{account_id}"
 
+# Load data
+st.sidebar.header("📥 Load Data")
 if st.sidebar.button("🔄 Refresh Data", use_container_width=True):
     st.cache_data.clear()
     st.rerun()
 
-# Load data
-with st.spinner("Loading data..."):
+# Load datasets
+with st.spinner("Loading data from S3..."):
     products_df = load_data_from_s3(bucket, "bronze/products/")
     customers_df = load_data_from_s3(bucket, "bronze/customers/")
     orders_df = load_data_from_s3(bucket, "bronze/orders/")
@@ -75,125 +71,152 @@ with st.spinner("Loading data..."):
 
 # KPIs
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("📦 Products", len(products_df) if not products_df.empty else 0)
-col2.metric("👥 Customers", len(customers_df) if not customers_df.empty else 0)
-col3.metric("🛒 Orders", len(orders_df) if not orders_df.empty else 0)
-col4.metric("📊 Events", len(events_df) if not events_df.empty else 0)
+
+with col1:
+    st.metric("📦 Products", len(products_df) if not products_df.empty else 0)
+
+with col2:
+    st.metric("👥 Customers", len(customers_df) if not customers_df.empty else 0)
+
+with col3:
+    st.metric("🛒 Orders", len(orders_df) if not orders_df.empty else 0)
+
+with col4:
+    st.metric("📊 Events", len(events_df) if not events_df.empty else 0)
 
 st.divider()
 
 # Tabs
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["📦 Products", "👥 Customers", "🛒 Orders", "📈 Events", "📋 Raw Data"])
 
-# Products
+# Products Tab
 with tab1:
     if not products_df.empty:
         col1, col2 = st.columns(2)
         
         with col1:
-            st.subheader("Products per Category")
-            if 'category' in products_df.columns:
-                counts = products_df['category'].value_counts()
-                fig = px.bar(x=counts.index, y=counts.values, title="Products by Category",
-                            labels={'x': 'Category', 'y': 'Count'})
-                st.plotly_chart(fig, use_container_width=True)
+            st.subheader("Price Distribution by Category")
+            fig = px.box(products_df, x='category', y='price', color='category', 
+                        title="Product Prices by Category")
+            st.plotly_chart(fig, use_container_width=True)
         
         with col2:
-            st.subheader("Price Statistics")
-            if 'price' in products_df.columns:
-                prices = pd.to_numeric(products_df['price'], errors='coerce').dropna()
-                st.metric("Avg Price", f"${prices.mean():.2f}")
-                st.metric("Max Price", f"${prices.max():.2f}")
-                st.metric("Min Price", f"${prices.min():.2f}")
+            st.subheader("Products per Category")
+            category_counts = products_df['category'].value_counts()
+            fig = px.pie(values=category_counts.values, names=category_counts.index,
+                        title="Product Distribution")
+            st.plotly_chart(fig, use_container_width=True)
+        
+        st.subheader("Product Ratings")
+        if 'rating' in products_df.columns:
+            ratings = pd.json_normalize(products_df['rating'])
+            fig = px.scatter(ratings, x='count', y='rate', 
+                            title="Rating vs Review Count",
+                            labels={'count': 'Review Count', 'rate': 'Rating'})
+            st.plotly_chart(fig, use_container_width=True)
         
         st.subheader("All Products")
         st.dataframe(products_df, use_container_width=True)
     else:
-        st.info("No product data")
+        st.info("No product data available")
 
-# Customers
+# Customers Tab
 with tab2:
     if not customers_df.empty:
-        st.subheader(f"Total Customers: {len(customers_df)}")
+        st.subheader("Customers by City")
         
         if 'address' in customers_df.columns:
-            try:
-                cities = customers_df['address'].apply(lambda x: x.get('city', 'Unknown') if isinstance(x, dict) else 'Unknown')
-                counts = cities.value_counts().head(10)
-                
-                fig = px.bar(x=counts.index, y=counts.values, title="Top 10 Cities",
+            cities = customers_df['address'].apply(lambda x: x['city'] if isinstance(x, dict) else 'Unknown')
+            city_counts = cities.value_counts()
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                fig = px.bar(x=city_counts.index, y=city_counts.values,
+                            title="Customers per City",
                             labels={'x': 'City', 'y': 'Count'})
                 st.plotly_chart(fig, use_container_width=True)
-            except:
-                pass
+            
+            with col2:
+                fig = px.pie(values=city_counts.values, names=city_counts.index,
+                            title="Customer Distribution by City")
+                st.plotly_chart(fig, use_container_width=True)
         
         st.subheader("All Customers")
-        st.dataframe(customers_df[['id', 'email', 'username']] if set(['id', 'email', 'username']).issubset(customers_df.columns) else customers_df, use_container_width=True)
+        st.dataframe(customers_df[['id', 'email', 'username']], use_container_width=True)
     else:
-        st.info("No customer data")
+        st.info("No customer data available")
 
-# Orders
+# Orders Tab
 with tab3:
     if not orders_df.empty:
         col1, col2 = st.columns(2)
         
         with col1:
-            st.subheader("Total Orders")
-            st.metric("Orders", len(orders_df))
+            st.subheader("Orders by Status")
+            status_counts = orders_df['status'].value_counts()
+            fig = px.pie(values=status_counts.values, names=status_counts.index,
+                        title="Order Status Distribution")
+            st.plotly_chart(fig, use_container_width=True)
         
         with col2:
-            st.subheader("Order Status")
-            if 'status' in orders_df.columns:
-                status_counts = orders_df['status'].value_counts()
-                fig = px.pie(values=status_counts.values, names=status_counts.index,
-                            title="Order Status Distribution")
-                st.plotly_chart(fig, use_container_width=True)
+            st.subheader("Orders per Day")
+            orders_df['date'] = pd.to_datetime(orders_df['date'])
+            daily_orders = orders_df.groupby('date').size()
+            fig = px.line(x=daily_orders.index, y=daily_orders.values,
+                         title="Daily Orders",
+                         labels={'x': 'Date', 'y': 'Order Count'})
+            st.plotly_chart(fig, use_container_width=True)
         
         st.subheader("All Orders")
         st.dataframe(orders_df, use_container_width=True)
     else:
-        st.info("No order data")
+        st.info("No order data available")
 
-# Events
+# Events Tab
 with tab4:
     if not events_df.empty:
         col1, col2 = st.columns(2)
         
         with col1:
             st.subheader("Events by Type")
-            if 'event_type' in events_df.columns:
-                counts = events_df['event_type'].value_counts()
-                fig = px.bar(x=counts.index, y=counts.values, title="Event Distribution",
-                            labels={'x': 'Event Type', 'y': 'Count'})
-                st.plotly_chart(fig, use_container_width=True)
+            event_counts = events_df['event_type'].value_counts()
+            fig = px.bar(x=event_counts.index, y=event_counts.values,
+                        title="Event Distribution",
+                        labels={'x': 'Event Type', 'y': 'Count'})
+            st.plotly_chart(fig, use_container_width=True)
         
         with col2:
             st.subheader("Events by Device")
-            if 'device' in events_df.columns:
-                counts = events_df['device'].value_counts()
-                fig = px.pie(values=counts.values, names=counts.index, title="Device Distribution")
-                st.plotly_chart(fig, use_container_width=True)
+            device_counts = events_df['device'].value_counts()
+            fig = px.pie(values=device_counts.values, names=device_counts.index,
+                        title="Device Distribution")
+            st.plotly_chart(fig, use_container_width=True)
         
         st.subheader("All Events")
         st.dataframe(events_df, use_container_width=True)
     else:
-        st.info("No event data")
+        st.info("No event data available")
 
-# Raw Data
+# Raw Data Tab
 with tab5:
+    st.subheader("Raw Data Explorer")
+    
     dataset = st.selectbox("Select Dataset", ["Products", "Customers", "Orders", "Events"])
     
-    if dataset == "Products" and not products_df.empty:
+    if dataset == "Products":
         st.dataframe(products_df, use_container_width=True)
-    elif dataset == "Customers" and not customers_df.empty:
+    elif dataset == "Customers":
         st.dataframe(customers_df, use_container_width=True)
-    elif dataset == "Orders" and not orders_df.empty:
+    elif dataset == "Orders":
         st.dataframe(orders_df, use_container_width=True)
-    elif dataset == "Events" and not events_df.empty:
+    elif dataset == "Events":
         st.dataframe(events_df, use_container_width=True)
-    else:
-        st.info(f"No {dataset.lower()} data available")
 
 # Footer
 st.divider()
-st.markdown(f"**Last Updated**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | **Data Source**: AWS S3")
+st.markdown("""
+**E-Commerce Data Platform** | 
+Last Updated: """ + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + """ |
+Data Source: AWS S3 Data Lake
+""")
