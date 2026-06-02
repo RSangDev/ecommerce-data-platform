@@ -124,13 +124,33 @@ with tab1:
                 st.subheader("Price Distribution by Category")
                 if 'category' in products_df.columns and 'price' in products_df.columns:
                     # Ensure price is numeric
-                    products_df['price'] = pd.to_numeric(products_df['price'], errors='coerce')
-                    products_df_clean = products_df.dropna(subset=['price'])
+                    products_df_temp = products_df.copy()
+                    products_df_temp['price'] = pd.to_numeric(products_df_temp['price'], errors='coerce')
+                    
+                    # Remove rows with invalid prices
+                    products_df_clean = products_df_temp[products_df_temp['price'].notna()]
                     
                     if len(products_df_clean) > 0:
-                        fig = px.box(products_df_clean, x='category', y='price', color='category', 
-                                    title="Product Prices by Category")
-                        st.plotly_chart(fig, use_container_width=True)
+                        try:
+                            # Only show categories with data
+                            valid_categories = products_df_clean['category'].unique()
+                            products_df_clean = products_df_clean[products_df_clean['category'].isin(valid_categories)]
+                            
+                            if len(valid_categories) > 1:
+                                # Box plot only if multiple categories
+                                fig = px.box(products_df_clean, x='category', y='price', 
+                                            title="Product Prices by Category")
+                                st.plotly_chart(fig, use_container_width=True)
+                            else:
+                                # Histogram if only one category
+                                fig = px.histogram(products_df_clean, x='price', 
+                                                 title="Price Distribution",
+                                                 nbins=20)
+                                st.plotly_chart(fig, use_container_width=True)
+                        except Exception as e:
+                            st.write(f"Error creating chart: {str(e)}")
+                            st.write("Data preview:")
+                            st.dataframe(products_df_clean.head())
                     else:
                         st.info("No valid price data available")
                 else:
