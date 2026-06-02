@@ -1,4 +1,3 @@
-
 """
 E-Commerce Data Platform - Streamlit Dashboard
 Real-time visualization of data lake metrics
@@ -20,10 +19,24 @@ st.set_page_config(page_title="E-Commerce Dashboard", layout="wide", initial_sid
 st.title("📊 E-Commerce Data Platform Dashboard")
 st.markdown("Real-time data lake visualization")
 
-# Initialize S3 client
+# Initialize S3 client with Streamlit Secrets
 @st.cache_resource
 def get_s3_client():
-    return boto3.client('s3', region_name='us-east-1')
+    try:
+        # Try to get credentials from Streamlit secrets
+        if "aws" in st.secrets:
+            return boto3.client(
+                's3',
+                region_name=st.secrets["aws"].get("region", "us-east-1"),
+                aws_access_key_id=st.secrets["aws"]["access_key_id"],
+                aws_secret_access_key=st.secrets["aws"]["secret_access_key"]
+            )
+        else:
+            # Fallback to environment variables or default credentials
+            return boto3.client('s3', region_name='us-east-1')
+    except Exception as e:
+        st.error(f"AWS Configuration Error: {e}")
+        st.stop()
 
 @st.cache_data(ttl=300)
 def load_data_from_s3(bucket, prefix):
@@ -36,18 +49,30 @@ def load_data_from_s3(bucket, prefix):
         if 'Contents' in response:
             for obj in response['Contents']:
                 if obj['Key'].endswith('.json'):
-                    file_obj = s3.get_object(Bucket=bucket, Key=obj['Key'])
-                    content = json.loads(file_obj['Body'].read())
-                    
-                    # Handle both list and dict responses
-                    if isinstance(content, list):
-                        data.extend(content)
-                    else:
-                        data.append(content)
+                    try:
+                        file_obj = s3.get_object(Bucket=bucket, Key=obj['Key'])
+                        content = json.loads(file_obj['Body'].read().decode('utf-8'))
+                        
+                        # Handle both list and dict responses
+                        if isinstance(content, list):
+                            data.extend(content)
+                        elif isinstance(content, dict):
+                            data.append(content)
+                    except Exception as e:
+                        st.warning(f"Error parsing {obj['Key']}: {str(e)}")
+                        continue
         
-        return pd.DataFrame(data) if data else pd.DataFrame()
+        df = pd.DataFrame(data) if data else pd.DataFrame()
+        
+        # Debug: Show loaded data structure
+        if len(df) > 0:
+            st.sidebar.info(f"✅ Loaded {len(df)} records from {prefix}")
+        else:
+            st.sidebar.warning(f"⚠️ No data loaded from {prefix}")
+        
+        return df
     except Exception as e:
-        st.error(f"Error loading data: {e}")
+        st.sidebar.error(f"Error loading data from {prefix}: {e}")
         return pd.DataFrame()
 
 # Sidebar config
@@ -92,31 +117,59 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(["📦 Products", "👥 Customers", "🛒
 # Products Tab
 with tab1:
     if not products_df.empty:
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("Price Distribution by Category")
-            fig = px.box(products_df, x='category', y='price', color='category', 
-                        title="Product Prices by Category")
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            st.subheader("Products per Category")
-            category_counts = products_df['category'].value_counts()
-            fig = px.pie(values=category_counts.values, names=category_counts.index,
-                        title="Product Distribution")
-            st.plotly_chart(fig, use_container_width=True)
-        
-        st.subheader("Product Ratings")
-        if 'rating' in products_df.columns:
-            ratings = pd.json_normalize(products_df['rating'])
-            fig = px.scatter(ratings, x='count', y='rate', 
-                            title="Rating vs Review Count",
-                            labels={'count': 'Review Count', 'rate': 'Rating'})
-            st.plotly_chart(fig, use_container_width=True)
-        
-        st.subheader("All Products")
-        st.dataframe(products_df, use_container_width=True)
+        try:
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("Price Distribution by Category")
+                if 'category' in products_df.columns and 'price' in products_df.columns:
+                    # Ensure price is numeric
+                    products_df['price'] = pd.to_numeric(products_df['price'], errors='coerce')
+                    products_df_clean = products_df.dropna(subset=['price'])
+                    
+                    if len(products_df_clean) > 0:
+                        fig = px.box(products_df_clean, x='category', y='price', color='category', 
+                                    title="Product Prices by Category")
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No valid price data available")
+                else:
+                    st.info("Missing required columns (category, price)")
+            
+            with col2:
+                st.subheader("Products per Category")
+                if 'category' in products_df.columns:
+                    category_counts = products_df['category'].value_counts()
+                    if len(category_counts) > 0:
+                        fig = px.pie(values=category_counts.values, names=category_counts.index,
+                                    title="Product Distribution")
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No categories found")
+                else:
+                    st.info("Missing category column")
+            
+            st.subheader("Product Ratings")
+            if 'rating' in products_df.columns:
+                try:
+                    ratings = pd.json_normalize(products_df['rating'])
+                    if len(ratings) > 0 and 'count' in ratings.columns and 'rate' in ratings.columns:
+                        ratings['count'] = pd.to_numeric(ratings['count'], errors='coerce')
+                        ratings['rate'] = pd.to_numeric(ratings['rate'], errors='coerce')
+                        ratings_clean = ratings.dropna(subset=['count', 'rate'])
+                        
+                        if len(ratings_clean) > 0:
+                            fig = px.scatter(ratings_clean, x='count', y='rate', 
+                                            title="Rating vs Review Count",
+                                            labels={'count': 'Review Count', 'rate': 'Rating'})
+                            st.plotly_chart(fig, use_container_width=True)
+                except Exception as e:
+                    st.info(f"Could not display ratings: {str(e)}")
+            
+            st.subheader("All Products")
+            st.dataframe(products_df, use_container_width=True)
+        except Exception as e:
+            st.error(f"Error displaying products: {str(e)}")
     else:
         st.info("No product data available")
 
