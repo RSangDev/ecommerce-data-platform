@@ -1,4 +1,3 @@
-
 """
 E-Commerce Data Platform - Streamlit Dashboard
 Real-time visualization of data lake metrics
@@ -20,10 +19,24 @@ st.set_page_config(page_title="E-Commerce Dashboard", layout="wide", initial_sid
 st.title("📊 E-Commerce Data Platform Dashboard")
 st.markdown("Real-time data lake visualization")
 
-# Initialize S3 client
+# Initialize S3 client with Streamlit Secrets
 @st.cache_resource
 def get_s3_client():
-    return boto3.client('s3', region_name='us-east-1')
+    try:
+        # Try to get credentials from Streamlit secrets
+        if "aws" in st.secrets:
+            return boto3.client(
+                's3',
+                region_name=st.secrets["aws"].get("region", "us-east-1"),
+                aws_access_key_id=st.secrets["aws"]["access_key_id"],
+                aws_secret_access_key=st.secrets["aws"]["secret_access_key"]
+            )
+        else:
+            # Fallback to environment variables or default credentials
+            return boto3.client('s3', region_name='us-east-1')
+    except Exception as e:
+        st.error(f"AWS Configuration Error: {e}")
+        st.stop()
 
 @st.cache_data(ttl=300)
 def load_data_from_s3(bucket, prefix):
